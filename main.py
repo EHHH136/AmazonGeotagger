@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import json
+import os
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,7 +12,7 @@ from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-REPORTS_CSV_PATH = ROOT / "illegal_mining_reports.csv"
+REPORTS_CSV_PATH = Path(os.environ.get("REPORTS_CSV_PATH", str(ROOT / "illegal_mining_reports.csv")))
 CSV_FIELDS = [
 	"id",
 	"created_at",
@@ -703,8 +704,10 @@ class MiningReportHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
 		initialize_storage()
-		server = ThreadingHTTPServer(("127.0.0.1", 8000), MiningReportHandler)
-		print("Amazon mining geo-tag reporter running at http://127.0.0.1:8000")
+		host = "0.0.0.0"
+		port = int(os.environ.get("PORT", "8000"))
+		server = ThreadingHTTPServer((host, port), MiningReportHandler)
+		print(f"Amazon mining geo-tag reporter running on {host}:{port}")
 		try:
 				server.serve_forever()
 		except KeyboardInterrupt:
