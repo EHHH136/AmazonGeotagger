@@ -404,6 +404,7 @@ def build_html() -> str:
 
 						<div class="button-row">
 							<button type="button" class="secondary" id="locateMe">Get geotag</button>
+							<button type="button" class="secondary" id="downloadCsv">Download CSV</button>
 							<button type="submit" class="primary">Save to database</button>
 						</div>
 					</form>
@@ -429,6 +430,7 @@ def build_html() -> str:
 		const startCameraButton = document.getElementById('startCamera');
 		const capturePhotoButton = document.getElementById('capturePhoto');
 		const retakePhotoButton = document.getElementById('retakePhoto');
+		const downloadCsvButton = document.getElementById('downloadCsv');
 		const locateMeButton = document.getElementById('locateMe');
 		const reportForm = document.getElementById('reportForm');
 		const statusBox = document.getElementById('status');
@@ -587,6 +589,9 @@ def build_html() -> str:
 		startCameraButton.addEventListener('click', startCamera);
 		capturePhotoButton.addEventListener('click', capturePhoto);
 		retakePhotoButton.addEventListener('click', retakePhoto);
+		downloadCsvButton.addEventListener('click', () => {
+			window.location.href = '/download-csv';
+		});
 		locateMeButton.addEventListener('click', getLocation);
 
 		window.addEventListener('beforeunload', stopCamera);
@@ -628,6 +633,18 @@ class MiningReportHandler(BaseHTTPRequestHandler):
 				if parsed.path == "/api/reports":
 						self._send_json({"items": list_reports()})
 						return
+
+				if parsed.path == "/download-csv":
+					initialize_storage()
+					csv_bytes = REPORTS_CSV_PATH.read_bytes()
+					self.send_response(HTTPStatus.OK)
+					self.send_header("Content-Type", "text/csv; charset=utf-8")
+					self.send_header("Content-Length", str(len(csv_bytes)))
+					self.send_header("Content-Disposition", 'attachment; filename="illegal_mining_reports.csv"')
+					self.send_header("Cache-Control", "no-store")
+					self.end_headers()
+					self.wfile.write(csv_bytes)
+					return
 
 				if parsed.path.startswith("/api/reports/") and parsed.path.endswith("/image"):
 						report_id_text = parsed.path.removeprefix("/api/reports/").removesuffix("/image").strip("/")
