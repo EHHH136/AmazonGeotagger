@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+illegal_mining_reports.csv
+illegal_mining_reports.db

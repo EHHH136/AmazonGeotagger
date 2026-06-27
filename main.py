@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import base64
+import csv
 import json
-import sqlite3
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,79 +11,86 @@ from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-DATABASE_PATH = ROOT / "illegal_mining_reports.db"
+REPORTS_CSV_PATH = ROOT / "illegal_mining_reports.csv"
+CSV_FIELDS = [
+	"id",
+	"created_at",
+	"site_name",
+	"notes",
+	"latitude",
+	"longitude",
+	"image_mime",
+	"image_base64",
+]
 
 
 def utc_now() -> str:
 		return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def initialize_database() -> None:
-		with sqlite3.connect(DATABASE_PATH) as connection:
-				connection.execute(
-						"""
-						CREATE TABLE IF NOT EXISTS reports (
-								id INTEGER PRIMARY KEY AUTOINCREMENT,
-								created_at TEXT NOT NULL,
-								site_name TEXT NOT NULL,
-								notes TEXT,
-								latitude REAL NOT NULL,
-								longitude REAL NOT NULL,
-								image_mime TEXT NOT NULL,
-								image_blob BLOB NOT NULL
-						)
-						"""
-				)
-				connection.commit()
+def initialize_storage() -> None:
+		if REPORTS_CSV_PATH.exists() and REPORTS_CSV_PATH.stat().st_size > 0:
+				return
+
+		with REPORTS_CSV_PATH.open("w", newline="", encoding="utf-8") as file_handle:
+				writer = csv.DictWriter(file_handle, fieldnames=CSV_FIELDS)
+				writer.writeheader()
+
+
+def load_report_rows() -> list[dict[str, str]]:
+		if not REPORTS_CSV_PATH.exists() or REPORTS_CSV_PATH.stat().st_size == 0:
+				return []
+
+		with REPORTS_CSV_PATH.open("r", newline="", encoding="utf-8") as file_handle:
+				reader = csv.DictReader(file_handle)
+				return list(reader)
 
 
 def save_report(site_name: str, notes: str, latitude: float, longitude: float, image_mime: str, image_blob: bytes) -> int:
-		with sqlite3.connect(DATABASE_PATH) as connection:
-				cursor = connection.execute(
-						"""
-						INSERT INTO reports (
-								created_at,
-								site_name,
-								notes,
-								latitude,
-								longitude,
-								image_mime,
-								image_blob
-						) VALUES (?, ?, ?, ?, ?, ?, ?)
-						""",
-						(utc_now(), site_name, notes, latitude, longitude, image_mime, image_blob),
-				)
-				connection.commit()
-				return int(cursor.lastrowid)
+		initialize_storage()
+		report_id = len(load_report_rows()) + 1
+		encoded_image = base64.b64encode(image_blob).decode("ascii")
+		row = {
+				"id": str(report_id),
+				"created_at": utc_now(),
+				"site_name": site_name,
+				"notes": notes,
+				"latitude": str(latitude),
+				"longitude": str(longitude),
+				"image_mime": image_mime,
+				"image_base64": encoded_image,
+		}
+
+		with REPORTS_CSV_PATH.open("a", newline="", encoding="utf-8") as file_handle:
+				writer = csv.DictWriter(file_handle, fieldnames=CSV_FIELDS)
+				writer.writerow(row)
+
+		return report_id
 
 
 def list_reports(limit: int = 25) -> list[dict[str, object]]:
-		with sqlite3.connect(DATABASE_PATH) as connection:
-				connection.row_factory = sqlite3.Row
-				rows = connection.execute(
-						"""
-						SELECT id, created_at, site_name, notes, latitude, longitude
-						FROM reports
-						ORDER BY id DESC
-						LIMIT ?
-						""",
-						(limit,),
-				).fetchall()
+		rows = load_report_rows()
+		selected_rows = rows[-limit:][::-1]
 
-		return [dict(row) for row in rows]
+		return [
+			{
+				"id": int(row["id"]),
+				"created_at": row["created_at"],
+				"site_name": row["site_name"],
+				"notes": row["notes"],
+				"latitude": float(row["latitude"]),
+				"longitude": float(row["longitude"]),
+			}
+			for row in selected_rows
+		]
 
 
 def get_report_image(report_id: int) -> tuple[str, bytes] | None:
-		with sqlite3.connect(DATABASE_PATH) as connection:
-				row = connection.execute(
-						"SELECT image_mime, image_blob FROM reports WHERE id = ?",
-						(report_id,),
-				).fetchone()
+		for row in load_report_rows():
+				if int(row["id"]) == report_id:
+					return str(row["image_mime"]), base64.b64decode(row["image_base64"])
 
-		if row is None:
-				return None
-
-		return str(row[0]), bytes(row[1])
+		return None
 
 
 def build_html() -> str:
@@ -344,7 +351,7 @@ def build_html() -> str:
 			<p class="eyebrow">Amazon field reporting</p>
 			<h1>Geotag illegal mining evidence in the field.</h1>
 			<p class="subtitle">
-				Capture a photo, record GPS coordinates from the device, and save the report to SQLite.
+				Capture a photo, record GPS coordinates from the device, and save the report to CSV.
 				The app is built for evidence collection in remote Amazon locations and can be extended to
 				a production database later.
 			</p>
@@ -407,7 +414,7 @@ def build_html() -> str:
 			<section class="card">
 				<div class="content">
 					<h2 class="panel-title">Latest reports</h2>
-					<p class="panel-copy">Recent records stored in SQLite. Images are saved in the database and exposed through the app.</p>
+					<p class="panel-copy">Recent records stored in CSV. Images are base64-encoded in the file and exposed through the app.</p>
 					<div id="reports" class="reports"></div>
 				</div>
 			</section>
@@ -695,7 +702,7 @@ class MiningReportHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-		initialize_database()
+		initialize_storage()
 		server = ThreadingHTTPServer(("127.0.0.1", 8000), MiningReportHandler)
 		print("Amazon mining geo-tag reporter running at http://127.0.0.1:8000")
 		try:
