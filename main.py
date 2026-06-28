@@ -194,6 +194,43 @@ def build_html() -> str:
 			line-height: 1.5;
 		}
 
+		/* collapsible control */
+		.controls {
+			display: block;
+			margin-bottom: 12px;
+		}
+
+		.controls .toggle {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			cursor: pointer;
+			padding: 10px 12px;
+			border-radius: 12px;
+			background: rgba(255,255,255,0.03);
+			border: 1px solid rgba(255,255,255,0.04);
+		}
+
+		.controls .arrow {
+			transition: transform 0.2s ease;
+		}
+
+		.controls .arrow.open { transform: rotate(180deg); }
+
+		.controls .panel {
+			display: none;
+			margin-top: 8px;
+			padding: 10px 12px;
+			border-radius: 12px;
+			background: rgba(255,255,255,0.02);
+			border: 1px solid rgba(255,255,255,0.03);
+		}
+
+		.data-preview { display: flex; gap: 12px; align-items: center; }
+		.data-preview .stats { color: var(--muted); }
+		.data-preview .thumbs { display:flex; gap:8px; }
+		.data-preview .thumbs img { width:56px; height:56px; object-fit:cover; border-radius:8px; border:1px solid rgba(255,255,255,0.06); }
+
 		.camera-wrap {
 			display: grid;
 			gap: 12px;
@@ -426,6 +463,22 @@ def build_html() -> str:
 				<div class="content">
 					<h2 class="panel-title">Latest reports</h2>
 					<p class="panel-copy">Recent records stored in CSV. Images are base64-encoded in the file and exposed through the app.</p>
+					<div class="controls">
+						<div class="toggle" id="controlsToggle">
+							<span>Map controls</span>
+							<span class="arrow" id="controlsArrow">▾</span>
+						</div>
+						<div class="panel" id="controlsPanel">
+							<div style="display:flex;justify-content:space-between;align-items:center;">
+								<label><input type="checkbox" id="showHeat" checked /> Show heatmap</label>
+								<label><input type="checkbox" id="showThumbs" checked /> Show sample thumbnails</label>
+							</div>
+							<div class="data-preview" id="dataPreview">
+								<div class="stats" id="previewStats">0 reports</div>
+								<div class="thumbs" id="previewThumbs"></div>
+							</div>
+						</div>
+					</div>
 					<div id="map"></div>
 					<div style="height:12px"></div>
 					<div id="reports" class="reports"></div>
@@ -459,6 +512,21 @@ def build_html() -> str:
 		let map = null;
 		let heatLayer = null;
 
+		const controlsToggle = document.getElementById('controlsToggle');
+		const controlsPanel = document.getElementById('controlsPanel');
+		const controlsArrow = document.getElementById('controlsArrow');
+		const showHeatCheckbox = document.getElementById('showHeat');
+		const showThumbsCheckbox = document.getElementById('showThumbs');
+		const previewStats = document.getElementById('previewStats');
+		const previewThumbs = document.getElementById('previewThumbs');
+
+		controlsToggle?.addEventListener('click', () => {
+			if (!controlsPanel) return;
+			const open = controlsPanel.style.display !== 'block';
+			controlsPanel.style.display = open ? 'block' : 'none';
+			if (controlsArrow) controlsArrow.classList.toggle('open', open);
+		});
+
 		function initMap() {
 			if (!mapDiv || map) return;
 			map = L.map('map').setView([-9.19, -75.0152], 5);
@@ -475,7 +543,7 @@ def build_html() -> str:
 				map.removeLayer(heatLayer);
 				heatLayer = null;
 			}
-			if (points.length && map) {
+			if (points.length && map && (showHeatCheckbox ? showHeatCheckbox.checked : true)) {
 				heatLayer = L.heatLayer(points, { radius: 25, blur: 15, maxZoom: 17 }).addTo(map);
 				try {
 					const latlngs = points.map(p => [p[0], p[1]]);
@@ -486,6 +554,20 @@ def build_html() -> str:
 				}
 			} else if (map) {
 				map.setView([-9.19, -75.0152], 5);
+			}
+
+			// update preview stats and thumbs
+			if (previewStats) previewStats.textContent = `${reports.length} reports`;
+			if (previewThumbs) {
+				previewThumbs.innerHTML = '';
+				if (showThumbsCheckbox && showThumbsCheckbox.checked) {
+					const sample = reports.slice(0, 4);
+					for (const r of sample) {
+						const img = document.createElement('img');
+						img.src = `/api/reports/${r.id}/image`;
+						previewThumbs.appendChild(img);
+					}
+				}
 			}
 		}
 
