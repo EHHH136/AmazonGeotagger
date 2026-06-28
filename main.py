@@ -95,13 +95,14 @@ def get_report_image(report_id: int) -> tuple[str, bytes] | None:
 
 
 def build_html() -> str:
-		return """<!DOCTYPE html>
+	return """<!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="UTF-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>Amazon Mining GeoTag Reporter</title>
-	<style>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Amazon Mining GeoTag Reporter</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
 		:root {
 			color-scheme: light;
 			--bg: #0d1b16;
@@ -307,6 +308,14 @@ def build_html() -> str:
 			gap: 14px;
 		}
 
+		#map {
+			width: 100%;
+			height: 320px;
+			border-radius: 14px;
+			border: 1px solid rgba(255, 255, 255, 0.08);
+			background: rgba(255,255,255,0.03);
+		}
+
 		.report {
 			display: grid;
 			grid-template-columns: 110px 1fr;
@@ -417,11 +426,16 @@ def build_html() -> str:
 				<div class="content">
 					<h2 class="panel-title">Latest reports</h2>
 					<p class="panel-copy">Recent records stored in CSV. Images are base64-encoded in the file and exposed through the app.</p>
+					<div id="map"></div>
+					<div style="height:12px"></div>
 					<div id="reports" class="reports"></div>
 				</div>
 			</section>
 		</main>
 	</div>
+
+	<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+	<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 
 	<script>
 		const video = document.getElementById('video');
@@ -440,6 +454,40 @@ def build_html() -> str:
 		const latitudeValue = document.getElementById('latitudeValue');
 		const longitudeValue = document.getElementById('longitudeValue');
 		const reportsContainer = document.getElementById('reports');
+
+		const mapDiv = document.getElementById('map');
+		let map = null;
+		let heatLayer = null;
+
+		function initMap() {
+			if (!mapDiv || map) return;
+			map = L.map('map').setView([-9.19, -75.0152], 5);
+			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+				attribution: '&copy; OpenStreetMap contributors'
+			}).addTo(map);
+		}
+
+		function updateHeatmap(reports) {
+			if (!Array.isArray(reports)) return;
+			initMap();
+			const points = reports.map(r => [Number(r.latitude), Number(r.longitude), 0.75]).filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]));
+			if (heatLayer && map) {
+				map.removeLayer(heatLayer);
+				heatLayer = null;
+			}
+			if (points.length && map) {
+				heatLayer = L.heatLayer(points, { radius: 25, blur: 15, maxZoom: 17 }).addTo(map);
+				try {
+					const latlngs = points.map(p => [p[0], p[1]]);
+					const bounds = L.latLngBounds(latlngs);
+					map.fitBounds(bounds.pad(0.2));
+				} catch (e) {
+					// ignore fitBounds errors
+				}
+			} else if (map) {
+				map.setView([-9.19, -75.0152], 5);
+			}
+		}
 
 		let stream = null;
 
@@ -524,6 +572,7 @@ def build_html() -> str:
 
 			if (!reports.length) {
 				reportsContainer.innerHTML = '<div class="status">No saved reports yet.</div>';
+				updateHeatmap([]);
 				return;
 			}
 
@@ -541,6 +590,9 @@ def build_html() -> str:
 				`;
 				reportsContainer.appendChild(item);
 			}
+
+			// update heatmap with latest coordinates
+			updateHeatmap(reports);
 		}
 
 		reportForm.addEventListener('submit', async event => {
